@@ -1,0 +1,10 @@
+[package]
+name = "KFuzz-Uring"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+rand = { version = "0.8", features = ["small_rng"] }
+io-uring = { version = "0.7", features = ["bindgen"] }
+libc = "0.2"
+nix = { version = "0.29", features = ["ioctl"] }
