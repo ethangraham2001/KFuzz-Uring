@@ -1,35 +1,74 @@
 use crate::blob_mutator::{Mutator, NaiveMutator};
 use rand::{Rng, SeedableRng, rngs::SmallRng};
 use std::fs::{self, File, OpenOptions};
+use std::io;
+
+#[derive(Debug)]
+pub struct KUnitInfo {
+    pub file: File,
+    pub suite: String,
+    pub name: String,
+    pub id: u32,
+}
 
 pub struct KFuzzTarget {
-    pub name: String,
-    pub file: File,
+    pub info: KUnitInfo,
     pub corpus: Corpus<NaiveMutator>,
     pub total_coverage: u64,
 }
 
-const KFUZZTEST_BASE_PATH: &str = "/sys/kernel/debug/kfuzztest";
+const KUNIT_BASE_PATH: &str = "/sys/kernel/debug/kunit";
 
-pub fn find_kfuzztest_targets() -> Result<Vec<String>, std::io::Error> {
-    let subdirs = fs::read_dir(KFUZZTEST_BASE_PATH)?
-        .filter_map(|entry| entry.ok())
-        .filter(|entry| entry.path().is_dir())
-        .map(|entry| entry.file_name().to_string_lossy().into_owned())
-        .collect();
-    Ok(subdirs)
+pub fn find_fuzz_targets() -> io::Result<Vec<KUnitInfo>> {
+    let subdirs = fs::read_dir(KUNIT_BASE_PATH)?;
+    let mut targets = Vec::new();
+
+    for entry in subdirs {
+        let entry = entry?;
+        let path = entry.path();
+
+        if !path.is_dir() {
+            continue;
+        }
+
+        let fuzz_path = path.join("fuzz");
+        let content = match fs::read_to_string(&fuzz_path) {
+            Ok(c) => c,
+            Err(e) if e.kind() == io::ErrorKind::NotFound => continue,
+            Err(e) => return Err(e),
+        };
+
+        let suite = entry.file_name().to_string_lossy().to_string();
+
+        for line in content.lines() {
+            let line = line.trim();
+
+            let Some((id_str, name_str)) = line.split_once(':') else {
+                continue;
+            };
+
+            let Ok(id) = id_str.trim().parse::<u32>() else {
+                continue;
+            };
+
+            let name = name_str.trim().to_string();
+            let file = OpenOptions::new().write(true).open(&fuzz_path)?;
+            targets.push(KUnitInfo {
+                file,
+                suite: suite.clone(),
+                name,
+                id,
+            });
+        }
+    }
+    Ok(targets)
 }
 
 impl KFuzzTarget {
-    pub fn new(name: &str) -> Result<Self, std::io::Error> {
-        let path = std::path::Path::new(KFUZZTEST_BASE_PATH)
-            .join(name)
-            .join("input_simple");
-        let file = OpenOptions::new().read(false).write(true).open(path)?;
+    pub fn new(info: KUnitInfo, rng_seed: u64) -> Result<Self, std::io::Error> {
         Ok(KFuzzTarget {
-            name: String::from(name),
-            file: file,
-            corpus: Corpus::new(),
+            info: info,
+            corpus: Corpus::new(rng_seed),
             total_coverage: 0,
         })
     }
@@ -73,11 +112,11 @@ pub struct Corpus<M: Mutator> {
 }
 
 impl<M: Mutator> Corpus<M> {
-    pub fn new() -> Self {
+    pub fn new(rng_seed: u64) -> Self {
         return Corpus {
             entries: vec![CorpusEntry::default()],
-            mutator: M::new(),
-            rng: SmallRng::from_entropy(),
+            mutator: M::new_from_seed(rng_seed),
+            rng: SmallRng::seed_from_u64(rng_seed),
         };
     }
 
