@@ -8,7 +8,7 @@ use std::time::Duration;
 
 use crate::kfuzz_executor::KFuzzExecutor;
 use crate::kfuzz_stats::KFuzzStats;
-use crate::kfuzz_target::{CorpusEntry, KFuzzTarget, compute_energy, find_kfuzztest_targets};
+use crate::kfuzz_target::{CorpusEntry, KFuzzTarget, compute_energy};
 
 pub struct KFuzzManager<E: KFuzzExecutor> {
     targets: Vec<KFuzzTarget>,
@@ -18,22 +18,13 @@ pub struct KFuzzManager<E: KFuzzExecutor> {
 }
 
 impl<E: KFuzzExecutor> KFuzzManager<E> {
-    pub fn new_from_targets(targets: Vec<KFuzzTarget>) -> Self {
+    pub fn new(targets: Vec<KFuzzTarget>) -> Self {
         Self {
             targets: targets,
             executor: E::new(),
             coverage_map: CoverageMap::new(),
             stats: KFuzzStats::new(),
         }
-    }
-
-    pub fn new_auto_find_targets() -> Self {
-        let targets: Vec<KFuzzTarget> = find_kfuzztest_targets()
-            .expect("unable to find targets")
-            .iter()
-            .map(|name| KFuzzTarget::new(name).expect("failure"))
-            .collect();
-        Self::new_from_targets(targets)
     }
 
     pub fn fuzz(&mut self) {
@@ -70,7 +61,7 @@ impl<E: KFuzzExecutor> KFuzzManager<E> {
     fn display_startup_info(&self) {
         println!("targets:");
         for target in self.targets.iter() {
-            println!("\t{}", target.name);
+            println!("\t{}", target.info.name);
         }
     }
 }

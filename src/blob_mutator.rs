@@ -6,6 +6,7 @@ use rand::{Rng, SeedableRng};
 pub trait Mutator {
     fn mutate(&mut self, data: &mut Vec<u8>);
     fn new() -> Self;
+    fn new_from_seed(seed: u64) -> Self;
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -14,15 +15,17 @@ enum MutationType {
     ByteOverwrite,
     InsertBlock,
     EraseBlock,
+    InterestingByte,
 }
 
 impl Distribution<MutationType> for Standard {
     fn sample<R: rand::Rng + ?Sized>(&self, rng: &mut R) -> MutationType {
-        match rng.gen_range(0..=3) {
+        match rng.gen_range(0..=4) {
             0 => MutationType::BitFlip,
             1 => MutationType::ByteOverwrite,
             2 => MutationType::InsertBlock,
-            _ => MutationType::EraseBlock,
+            3 => MutationType::EraseBlock,
+            _ => MutationType::InterestingByte,
         }
     }
 }
@@ -41,8 +44,13 @@ impl Mutator for NaiveMutator {
     }
 
     fn new() -> Self {
-        NaiveMutator {
-            rng: SmallRng::from_entropy(),
+        let seed: u64 = rand::thread_rng().r#gen();
+        Self::new_from_seed(seed)
+    }
+
+    fn new_from_seed(seed: u64) -> Self {
+        Self {
+            rng: SmallRng::seed_from_u64(seed),
         }
     }
 }
@@ -55,8 +63,10 @@ impl NaiveMutator {
             MutationType::ByteOverwrite => self.handle_byte_overwrite(buf),
             MutationType::InsertBlock => self.handle_insert_block(buf),
             MutationType::EraseBlock => self.handle_erase_block(buf),
+            MutationType::InterestingByte => self.handle_interesting_byte(buf),
         }
     }
+
     fn handle_bit_flip(&mut self, buf: &mut Vec<u8>) {
         if buf.is_empty() {
             return;
@@ -88,5 +98,15 @@ impl NaiveMutator {
         let len = self.rng.gen_range(1..17);
         let random_iter = (0..len).map(|_| self.rng.r#gen::<u8>());
         buf.splice(pos..pos, random_iter);
+    }
+
+    fn handle_interesting_byte(&mut self, buf: &mut Vec<u8>) {
+        const INTERESTING_8: &[u8] = &[0, 1, 16, 32, 64, 127, 128, 255, 0x30 /* ASN.1 SEQ */];
+        if buf.is_empty() {
+            return;
+        }
+        let idx = self.rng.gen_range(0..buf.len());
+        let val = INTERESTING_8[self.rng.gen_range(0..INTERESTING_8.len())];
+        buf[idx] = val;
     }
 }
